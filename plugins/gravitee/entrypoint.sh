@@ -277,6 +277,17 @@ fi
 # duplicated. More than one match is ambiguous — refuse rather than
 # silently update the wrong API.
 ids_json="$(gio apim apis list -q "[?name=='${PLUGIN_API_NAME}'].id" -o json)"
+# gio exits 0 but prints a non-JSON message when nothing matches the name,
+# so the very first publish of an API used to die here on jq instead of
+# reaching the create branch. Only exit-0 garbage is tolerated: a hard gio
+# failure (auth, network) still aborts via set -e on the assignment above,
+# so a broken lookup can never turn an update into a duplicating create.
+if ! printf '%s' "$ids_json" | jq -e . >/dev/null 2>&1; then
+    echo "gocdnext/gravitee: name lookup printed non-JSON (no API named '${PLUGIN_API_NAME}' yet?) — proceeding as first publish" >&2
+    ids_json='[]'
+elif [ "$(printf '%s' "$ids_json" | jq -r 'type')" != "array" ]; then
+    die "unexpected lookup response for '${PLUGIN_API_NAME}': $(printf '%.120s' "$ids_json")"
+fi
 match_count="$(printf '%s' "$ids_json" | jq 'length')"
 if [ "$match_count" -gt 1 ]; then
     die "found ${match_count} APIs named '${PLUGIN_API_NAME}' — refusing to guess which to update; disambiguate in Gravitee"

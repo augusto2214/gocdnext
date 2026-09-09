@@ -181,6 +181,26 @@ PLUGIN_CONFIG_SECRETS="GIO_APIM_TOKEN=pwn" \
   run >"$TMP/out" 2>&1 && fail "reserved config_secrets name should have failed"
 grep -q 'reserved' "$TMP/out" || fail "reserved-name error message missing"
 
+# ── 1e. first publish against a live Management API: the name lookup
+#        prints a non-JSON message (gio exits 0 with nothing matching) —
+#        must fall through to create instead of dying on jq ──
+setup_fx
+GIO_FAKE_LIST_JSON='no api matches the given query' \
+PLUGIN_API_NAME="orders-api" PLUGIN_URL="https://gv.test/mgmt" PLUGIN_TOKEN="tok" \
+PLUGIN_PATH="$FX" PLUGIN_DEFAULTS="$FX/defaults.yml" PLUGIN_TEMPLATE="$FX/tmpl.j2" \
+  run >"$TMP/out" 2>&1 || fail "non-JSON lookup run errored: $(cat "$TMP/out")"
+grep -q 'definition create --with-start' "$TMP/calls" || fail "non-JSON lookup did not fall through to create"
+grep -q 'proceeding as first publish' "$TMP/out"      || fail "first-publish note missing from output"
+
+# ── 1f. lookup returns valid JSON that is NOT an array (an API error
+#        body) — refuse loudly rather than guessing create-vs-update ──
+setup_fx
+GIO_FAKE_LIST_JSON='{"message":"forbidden"}' \
+PLUGIN_API_NAME="orders-api" PLUGIN_URL="https://gv.test/mgmt" PLUGIN_TOKEN="tok" \
+PLUGIN_PATH="$FX" PLUGIN_DEFAULTS="$FX/defaults.yml" PLUGIN_TEMPLATE="$FX/tmpl.j2" \
+  run >"$TMP/out" 2>&1 && fail "non-array lookup should have failed"
+grep -q 'unexpected lookup response' "$TMP/out" || fail "non-array lookup error message missing"
+
 # ── 2. update path: existing id → apply --api <id> --with-deploy, plans
 #       stripped from the payload BY DEFAULT (manage_plans_on_update=false
 #       → the import never touches existing plans) ──
